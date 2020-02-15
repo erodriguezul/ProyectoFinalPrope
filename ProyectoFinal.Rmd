@@ -1,0 +1,195 @@
+---
+title: "Práctica Final - Propedéutico MCD 2019"
+author: "Elizabeth Rodríguez"
+date: "15/7/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Análisis de texto con R (Bag of Words)
+Librerías a utilizar:
+```{r}
+library(gutenbergr)
+library(tidytext)
+library(wordcloud)
+library(dplyr)
+library(ggplot2)
+```
+
+Usamos la función gutenberg_download del paquete gutenbergr para extraer el texto a analizar. Pasamos como parámetro el id del libro. Para este primer ejemplo hemos elegido "Alice's Adventures in Wonderland", de Lewis Carrol:
+```{r}
+alice <- gutenberg_download(11)
+alice
+```
+Tenemos el texto en un formato similar al del libro impreso, que no es lo óptimo para nuestro análisis.
+
+Un "token" es una unidad de texto con significado, comunmente un palabra. 
+
+En nuestro caso, buscamos estructurar la información teniendo una palabra por fila. Para esto, usamos la función unnest_tokens() del paquete tidytext.
+
+```{r}
+tidy_alice <- unnest_tokens(alice,word,text)
+tidy_alice
+dim(tidy_alice)
+```
+
+Ahora podemos obtener la frecuencia de cada palabra en el texto:
+
+```{r}
+#Usamos dplyr's count()
+tidy_alice <- count(tidy_alice,word,sort=TRUE)
+tidy_alice 
+dim(tidy_alice)
+```
+Notamos que las palabras más frecuentes en el texto no nos dan información relevante acerca del mismo.
+
+Removemos estas palabras vacías con un anti join con el data frame stop_words
+```{r}
+tidy_alice <- anti_join(tidy_alice,stop_words)
+tidy_alice
+dim(tidy_alice)
+```
+
+Esta vez nuestro data frame refleja mucho mejor el contenido del libro, como podemos visualizar en la siguiente gráfica, en la que mostramos las palabras con frecuencia mayor a 30
+
+```{r}
+tidy_alice_g <- filter(tidy_alice,n>30)
+tidy_alice_g <- mutate(tidy_alice_g,word = reorder(word, n))
+tidy_alice_g
+
+ggplot(tidy_alice_g,aes(word,n))+
+  geom_col()+
+  xlab(NULL)+
+  coord_flip()
+```
+Otra forma de visualizarlo:
+```{r}
+wordcloud(tidy_alice$word, tidy_alice$n, max.words=50, colors = c("cyan2","deepskyblue"))
+```
+
+
+Sigamos estos pasos para otro par de libros, usando el operador pipe (%>%)
+
+*Through the Looking-Glass* (Lewis Carrol)
+
+```{r}
+looking_glass <- gutenberg_download(12)
+tidy_looking_glass <- looking_glass %>% 
+  unnest_tokens(word,text) %>% 
+  anti_join(stop_words) %>% 
+  count(word,sort=TRUE)
+tidy_looking_glass
+dim(tidy_looking_glass)
+```
+*The Adventures of Sherlock Holmes* (Arthur Conan Doyle)
+
+```{r}
+sherlock <- gutenberg_download(1661)
+tidy_sherlock <- sherlock %>% 
+  unnest_tokens(word,text) %>% 
+  anti_join(stop_words) %>% 
+  count(word,sort=TRUE)
+tidy_sherlock
+dim(tidy_sherlock)
+```
+
+Grafiquemos las palabras más frecuentes de estos dos nuevos libros
+```{r}
+tidy_glass_g <- filter(tidy_looking_glass,n>30)
+tidy_glass_g <- mutate(tidy_glass_g,word = reorder(word, n))
+ggplot(tidy_glass_g,aes(word,n))+
+  geom_col()+
+  xlab(NULL)+
+  coord_flip()
+```
+
+
+```{r}
+tidy_sherlock_g <- head(tidy_sherlock,30)
+tidy_sherlock_g <- mutate(tidy_sherlock_g,word = reorder(word, n))
+tidy_sherlock_g
+ggplot(tidy_sherlock_g,aes(word,n))+
+  geom_col()+
+  xlab(NULL)+
+  coord_flip()
+```
+
+O bien, con wordcloud:
+```{r}
+wordcloud(tidy_looking_glass$word, tidy_looking_glass$n, max.words=50, colors = c("gray","cyan"))
+```
+
+
+```{r}
+wordcloud(tidy_sherlock$word, tidy_sherlock$n, max.words=50, colors = c("orange","red"))
+
+```
+
+Calculamos las frecuencias relativas
+```{r}
+tidy_alice_f <- mutate(tidy_alice, proportion = n/sum(n))
+tidy_looking_glass_f <- mutate(tidy_looking_glass,proportion = n/sum(n))
+tidy_sherlock_f <- mutate(tidy_sherlock,proportion = n/sum(n))
+
+```
+
+Comparemos los tres textos, combinándolos en un solo dataframe.
+```{r}
+frecuencias <- bind_rows(mutate(tidy_alice_f, book ="Alice"),mutate(tidy_looking_glass_f,book="Through the Looking-Glass"),                         mutate(tidy_sherlock_f, book = "Sherlock Holmes")) %>% 
+  select(-n)
+  frecuencias
+```
+Usamos spread y gather del paquete tidyr
+
+```{r}
+library(tidyr)
+```
+
+
+```{r}
+frecuencias_s <- spread(frecuencias, book, proportion)
+frecuencias_s
+```
+
+
+```{r}
+frecuencias_g <- gather(frecuencias_s,book, proportion,'Through the Looking-Glass':'Sherlock Holmes')
+dim(frecuencias_g)
+frecuencias_g
+```
+
+Eliminamos las filas vacías:
+```{r}
+frecuencias_g <- filter(frecuencias_g,!(is.na(Alice))&!(is.na(proportion)))
+dim(frecuencias_g)
+frecuencias_g
+
+```
+
+Y graficamos
+
+```{r}
+library(scales)
+
+ggplot(frecuencias_g,aes(x=proportion,y=Alice, color = abs(Alice- proportion))) +
+  geom_abline(color= "gray40", lty = 2)+
+  geom_jitter(alpha = 0.1, size = 2.5, width = 0.3, height = 0.3)+
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +  
+  facet_wrap(~book, ncol = 2) +
+  theme(legend.position="none") +
+  labs(y = "Alice's Adventures", x = NULL)
+```
+*Referencias*
+
+https://www.tidytextmining.com/tidytext.html
+
+https://CRAN.R-project.org/package=tidytext
+
+https://cran.r-project.org/package=dplyr
+
+https://rsanchezs.gitbooks.io/rprogramming/content/chapter9/pipeline.html
